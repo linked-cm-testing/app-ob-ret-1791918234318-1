@@ -1,6 +1,6 @@
 {
-  "name": "app",
-  "displayName": "Linked App Template",
+  "name": "ob-ret-1791918234318-1-app",
+  "displayName": "Ob-ret-1791918234318's project",
   "description": "Linked app — base repository for new Linked apps.",
   "version": "0.1.0",
   "private": true,
@@ -39,7 +39,8 @@
     "dependencies": "node -e \"const p='node_modules/@_linked/cli/hooks/lock-at-rest.cjs';require('fs').existsSync(p)&&require(require('path').resolve(p))\""
   },
   "workspaces": [
-    "packages-local/*"
+    "packages-local/*",
+    "packages/*"
   ],
   "keywords": [
     "linked",
@@ -62,7 +63,9 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-error-boundary": "^3.1.3",
-    "react-router-dom": "^6.3.0"
+    "react-router-dom": "^6.3.0",
+    "ob-ret-1791918234318-1-ont": "^1.0.0",
+    "ob-ret-1791918234318-1-assets": "^1.0.0"
   },
   "devDependencies": {
     "@_linked/cli": "^1.47.0",
