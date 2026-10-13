@@ -1,0 +1,17 @@
+node_modules
+build
+lib
+public/bundles
+data/uploads
+data/metadata
+data/sessions
+linked.backend.datasets.json
+packages/**/dist
+packages/**/lib
+.idea
+# Local env (copied from .env.example)
+.env
+# Local package checkouts (linked localize): workspace members through the
+# "packages-local/*" glob; parked ones sit outside it.
+packages-local/
+.packages-local.parked/

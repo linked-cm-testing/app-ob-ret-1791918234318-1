@@ -1,0 +1,177 @@
+# Linked App
+
+A standalone [Linked](https://linked.cm) app generated with `@_linked/cli`. Requires **Node 22.22.2+ or 24.15+** (the range npm 12 supports).
+
+## What is Linked
+
+Linked is a TypeScript framework for building apps on top of a graph database (RDF / SPARQL). You write your domain as **shape classes**, query them with a **typed DSL**, and render with **linked React components** that subscribe to the query results.
+
+```ts
+// 1. A shape — domain class + SHACL metadata, generated from TypeScript decorators
+@linkedShape
+export class Person extends Shape {
+  static targetClass = schema.Person;
+
+  @literalProperty({ path: schema.givenName })  givenName: string;
+  @literalProperty({ path: schema.familyName }) familyName: string;
+}
+
+// 2. A query — TypeScript-embedded, type-inferred, executed against any IDataset
+const people = await Person.select((p) => [p.givenName, p.familyName]);
+
+// 3. A linked component — re-renders when its query result changes
+const PersonCard = linkedComponent(
+  Person.select((p) => [p.givenName, p.familyName]),
+  ({ givenName, familyName }) => <span>{givenName} {familyName}</span>,
+);
+```
+
+The home page in this app demonstrates the full chain end-to-end with `@_linked/schema`'s shipped `Person` shape.
+
+- **[@_linked/core](https://github.com/linked-fw/core)** — query DSL, Shape classes, storage routing.
+- **[@_linked/react](https://github.com/linked-fw/react)** — `linkedComponent`, `linkedSetComponent`.
+
+## Install + run
+
+This app installs with **npm** (`packageManager: npm@12.2.0`):
+
+```bash
+npm install
+npm start
+```
+
+The home page demonstrates the `@_linked` query DSL with a small Person CRUD — see `src/components/PersonOverview.tsx` and `src/components/PersonPreview.tsx`.
+
+The template commits its `package-lock.json`, so a fresh clone installs the exact versions the template was tested with. Renovate refreshes it weekly (`lockFileMaintenance` in the shared `linked-fw/renovate-config`). Keep committing it in your app. `npm run build` (`linked build-app`) refuses a working tree with uncommitted changes, because the release it builds is named after the commit. An untracked lockfile would make every fresh build fail that check, and the commit would not say which dependencies were built.
+
+`allowScripts` in `package.json` keeps that install quiet. It records npm 12's install-script decisions. The four dependencies with install scripts (`esbuild`, `unrs-resolver`, `fsevents`, `@parcel/watcher`) are denied by name: each only rebuilds or re-downloads a native binary that npm already installs as a prebuilt optional dependency. If you add a dependency whose install script is needed, approve it with `npm install-scripts approve <pkg>`.
+
+## Storage
+
+This app talks to an Apache Jena Fuseki SPARQL endpoint. Start a local Fuseki container:
+
+```bash
+docker run -d --rm -p 3030:3030 --name fuseki stain/jena-fuseki
+```
+
+The app auto-creates its dataset on first boot. A host that provisions the
+dataset itself sets `LINKED_DATASET_ENSURE=0` (Create Now does): the app then
+only checks that the dataset exists and logs an error if it does not, so a lost
+dataset is reported instead of silently re-created empty. Unset means on.
+
+**Storage config lives in three files**, per the spec in [`@_linked/cli` docs](https://www.npmjs.com/package/@_linked/cli):
+
+| File | Purpose |
+|---|---|
+| `linked.backend.datasets.json` | Backend Layer 2 — alias → store class + config. Gitignored. Copy of `linked.backend.datasets.example.json`. |
+| `linked.backend.storage.ts` | Backend Layer 1 — shape → alias routing. Parses the JSON, instantiates stores via `loadStores`, calls `LinkedStorage.setDefaultDataset(...)` / `setDatasetForShapes(...)`. |
+| `src/linked.frontend.{storage.ts,datasets.json}` | Frontend mirror — same JSON shape, public values only; storage TS imports store classes explicitly and constructs one per alias. |
+
+Defaults shipped:
+
+- `FUSEKI_BASE_URL` — `http://localhost:3030`
+- `FUSEKI_DATASET`  — `app-main` (in `.env.example`; set it per app)
+- `FUSEKI_USER` / `FUSEKI_PASSWORD` — `admin` / `admin` (matches the `stain/jena-fuseki` Docker image default)
+- `FUSEKI_DB_TYPE`  — `tdb2` (persistent). Set to `mem` for in-memory.
+
+All of these are referenced as `${VAR:-default}` placeholders in `linked.backend.datasets.json`, so you can either edit the JSON directly or set env vars.
+
+## Shapes, ontologies and components live in packages
+
+The app is a `linkedApp`, not a linked package: it has no `src/package.ts` and
+registers no shapes, ontologies or linked components of its own. Put them in
+packages inside this repo, which the app depends on through an npm workspace:
+
+- `packages/<name>-ont` — one ontology, nothing else;
+- `packages/<name>-assets` — shapes, linked components and backend providers.
+
+Scaffold them with the CLI, from the app root:
+
+```bash
+npx linked create-ont-package <name> --location packages    # packages/<name>-ont
+npx linked create-asset-package <name> --location packages  # packages/<name>-assets
+npx linked create-package <name> --kind both --location packages
+```
+
+Each wires the package into the app (adding `packages/*` to `workspaces` if it
+is missing). `--kind both` creates the pair, with the asset package depending on
+the ontology package. `create-package` without `--kind` asks which kind on a
+terminal; without a terminal it exits 1 and names the flag.
+
+A package's shape IRIs are `<root>shape/<name>-assets/<Shape>` and its ontology
+terms `<root>ont/<name>/<Term>`. By default that root is `https://linked.cm/` and
+the package declares none. To give packages created in this app a different
+root, pass `--base-uri <uri>` or set `LINKED_BASE_URI` (in the shell, `.env.local`
+or `.env`); the package then records it as `baseUri` in its `src/package.ts`.
+
+## Who may query the example data
+
+The client runs queries through the server's generic query endpoints (`/call/@_linked/server/*Query`). By default a store requires a signed-in session for every write, and for every read once `rpcExposure` is `'enforce'`. This template has no sign-in, so `linked.backend.storage.ts` declares a narrow rule on the app's store with `withAccess` (from `@_linked/server-utils/utils/QueryAccess`; the logic is in `src/utils/exampleAccess.ts`):
+
+| Caller | Reads | Writes |
+|---|---|---|
+| Signed-in session | anything | anything |
+| Anonymous, query touches only `Person` (and its super shape `Thing`) | allowed | only when `NODE_ENV=development` |
+| Anonymous, query touches any other shape | 401 | 401 |
+
+So the home page form works under `npm start` (`.env.example` sets `NODE_ENV=development`). The compiled build (`npm run build`, `npm run serve-app`) runs with `NODE_ENV=production`: it still lists people, but adding, editing or deleting one answers `401 Authentication required` until the app has sign-in. A rule belongs to a store, not a shape: a query it admits can address any node in that store's dataset by id, through the example shapes. That is acceptable for example data in development, and it is why anonymous writes stay out of production. Remove the rule together with the example.
+
+## Raw SPARQL
+
+`POST /api/select-raw` runs raw SPARQL against the default store. A raw query
+cannot be checked for what it reads, so the server's `rawQueries` setting
+decides who may run one: `'session'` (the default) allows any signed-in
+session, `'off'` refuses every raw query. Set it in `linked.config.js`
+(`server: { rawQueries: 'off' }`) or with `LINKED_RAW_QUERIES`.
+
+Run the tests with `npm test`.
+
+## Build for production
+
+Production runs the **compiled** app — `linked serve-app` — which never starts
+Vite or a file watcher. `npm run build` (`linked build-app`) must have run
+first: `serve-app` refuses to boot unless `lib/App.js`, `lib/routes.js`,
+`lib/backend.js` and `public/bundles/.vite/manifest.json` all exist, and exits
+with `Compiled app artifact is missing: … Run linked build-app before linked
+serve-app.` otherwise.
+
+```bash
+npm run build        # linked build-app — compiles backend + client bundles
+npm run server:prod  # linked serve-app — serves the compiled build
+```
+
+`npm start` (`linked start`) is the **development** entry: it boots Vite with
+HMR and must not be used to deploy.
+
+### Deploying with pm2
+
+Two pm2 process files ship with the template; both run the compiled entry, so
+build before (re)starting either:
+
+```bash
+npm run build
+pm2 start pm2.config.js          # production  → npm run server:prod
+pm2 start pm2-staging.config.js  # staging     → npm run server:staging
+```
+
+## Working on a framework package locally
+
+The app is already set up for `linked localize`: `packages-local/*` is a workspace glob and
+the install hooks keep the committed `package-lock.json` unchanged. With nothing localized
+none of this does anything.
+
+```bash
+npx linked localize @_linked/react   # clone into packages-local/, link, build
+npx linked localize --list           # checkouts and drift
+npx linked delocalize                # park them; the app uses npm again
+```
+
+Use `npm install`, not `npm ci`, while checkouts are present. Details:
+[docs/localize.md](https://github.com/linked-fw/cli/blob/main/docs/localize.md).
+
+## Learn more
+
+- [@_linked/core](https://www.npmjs.com/package/@_linked/core) — query DSL, Shape classes, storage routing. See `parseDatasetsConfig` + `loadStores` for the dataset-config helpers.
+- [@_linked/react](https://www.npmjs.com/package/@_linked/react) — `linkedComponent`, `linkedSetComponent`.
+- [@_linked/schema](https://www.npmjs.com/package/@_linked/schema) — shipped Shape classes (Person, Place, Organization, …).
+- [@_linked/css](https://www.npmjs.com/package/@_linked/css) — design tokens, Tailwind v4 theme primitives, `@utility` mixins. See `src/theme.css` for the wiring.
